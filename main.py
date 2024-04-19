@@ -2,17 +2,13 @@ import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 
-# Замените 'YOUR_TOKEN' на ваш токен
 TOKEN = '7167280571:AAHbRH6IhYDYwusbufpWy6q9zHdXuCmOdFc'
 
-# Инициализация бота и диспетчера
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Словарь для хранения созданных мероприятий с ключами
 events = {}
 
-# Обработчик команды /start для вывода информации о боте и командах
 @dp.message(Command("start"))
 async def start(message: types.Message):
     commands_info = (
@@ -26,7 +22,6 @@ async def start(message: types.Message):
         f"{commands_info}"
     )
 
-# Обработчик команды /create для создания мероприятия с уникальным ключом
 @dp.message(Command("create"))
 async def create_event(message: types.Message):
     # Генерация уникального ключа для мероприятия
@@ -34,7 +29,6 @@ async def create_event(message: types.Message):
     events[event_key] = {'creator': message.from_user.id, 'participants': []}
     await message.answer(f'Мероприятие создано! Ключ доступа: {event_key}')
 
-# Обработчик команды /join для подключения к мероприятию по ключу
 @dp.message(Command("join"))
 async def join_event(message: types.Message):
     try:
@@ -47,7 +41,6 @@ async def join_event(message: types.Message):
     except ValueError:
         await message.answer('Используйте команду в формате: /join [ключ]')
 
-# Запуск бота
 async def main():
     await dp.start_polling(bot)
 
