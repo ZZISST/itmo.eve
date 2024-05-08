@@ -1,11 +1,13 @@
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
+from dotenv import load_dotenv
+import os
 
-TOKEN = '7167280571:AAHbRH6IhYDYwusbufpWy6q9zHdXuCmOdFc'
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
+load_dotenv()
+bot = Bot(os.getenv('TOKEN'))
+dp = Dispatcher(bot=bot)
 
 events = {}
 
@@ -46,5 +48,8 @@ async def main():
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
-    loop.create_task(main())
-    loop.run_forever()
+    asyncio.set_event_loop(loop)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
