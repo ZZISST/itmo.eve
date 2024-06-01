@@ -2,7 +2,7 @@ import pytest
 import asyncio
 from aiogram import types
 from unittest.mock import AsyncMock, patch
-from __main__ import start_command, create_event, join_event, on_startup, on_shutdown, db_connection
+from src.main import start_command, create_event, join_event, on_startup, on_shutdown, db_connection
 
 
 @pytest.fixture
@@ -13,7 +13,7 @@ async def message():
 
 @pytest.fixture
 async def db_mock():
-    with patch("your_bot_file.db_connection") as mock:
+    with patch("main.db_connection") as mock:
         yield mock
 
 
