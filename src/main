@@ -1,0 +1,229 @@
+import asyncio
+import logging
+import os
+import re
+from aiogram import Bot, Dispatcher, types, Router
+from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from dotenv import load_dotenv
+import psycopg2
+ 
+ 
+from datetime import datetime
+
+# Импортируем функции клавиатур
+from keyboard import main_menu_keyboard, commands_keyboard, home_button, event_navigation_keyboard, personal_event_navigation_keyboard
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Загрузка переменных окружения
+load_dotenv()
+TOKEN = os.getenv('TOKEN')
+
+
+# Инициализация бота и диспетчера
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
+router = Router()
+
+
+
+# Удаление сообщения безопасно
+async def delete_message_safe(chat_id, message_id):
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception as e:
+        logger.error(f"Ошибка при удалении сообщения: {e}")
+
+# Команда /start
+@router.message(CommandStart())
+async def start_command(message: types.Message):
+    user_id = message.from_user.id
+    
+
+    keyboard = main_menu_keyboard()
+    await message.answer("Привет! Я бот для создания и управления мероприятиями.", reply_markup=keyboard)
+
+# Показать команды
+@router.callback_query(lambda c: c.data == 'show_commands')
+async def show_commands(callback_query: types.CallbackQuery):
+    await delete_message_safe(callback_query.message.chat.id, callback_query.message.message_id)
+    keyboard = commands_keyboard()
+    await callback_query.message.answer("Вот список доступных команд:", reply_markup=keyboard)
+
+# Определение состояний
+class EventCreation(StatesGroup):
+    waiting_for_event_name = State()
+    waiting_for_event_description = State()
+    waiting_for_event_date = State()
+    waiting_for_event_location = State()
+    waiting_for_event_links = State()
+
+class EventEdit(StatesGroup):
+    waiting_for_event_name = State()
+    waiting_for_event_description = State()
+    waiting_for_event_date = State()
+    waiting_for_event_location = State()
+    waiting_for_event_links = State()
+
+# Функция для начала процесса создания мероприятия
+async def start_event_creation(message_or_callback, state: FSMContext):
+    keyboard = home_button()
+    if isinstance(message_or_callback, types.Message):
+        await message_or_callback.answer("Введите название мероприятия:", reply_markup=keyboard)
+    else:
+        await delete_message_safe(message_or_callback.message.chat.id, message_or_callback.message.message_id)
+        await message_or_callback.message.answer("Введите название мероприятия:", reply_markup=keyboard)
+    await state.set_state(EventCreation.waiting_for_event_name)
+
+# Команда /create
+@router.message(Command("create"))
+async def create_event_command(message: types.Message, state: FSMContext):
+    await start_event_creation(message, state)
+
+# Инлайн-кнопка создать мероприятие
+@router.callback_query(lambda c: c.data == 'create_event')
+async def create_event_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    await start_event_creation(callback_query, state)
+
+@router.message(EventCreation.waiting_for_event_name)
+async def handle_event_name(message: types.Message, state: FSMContext):
+    await state.update_data(event_name=message.text)
+    keyboard = home_button()
+    await message.answer("Введите описание мероприятия:", reply_markup=keyboard)
+    await state.set_state(EventCreation.waiting_for_event_description)
+
+@router.message(EventCreation.waiting_for_event_description)
+async def handle_event_description(message: types.Message, state: FSMContext):
+    await state.update_data(event_description=message.text)
+    keyboard = home_button()
+    await message.answer("Введите дату мероприятия (дд.мм.гггг чч:мм):", reply_markup=keyboard)
+    await state.set_state(EventCreation.waiting_for_event_date)
+
+def validate_date(date_text):
+    try:
+        datetime.strptime(date_text, "%d.%m.%Y %H:%M")
+        return True
+    except ValueError:
+        return False
+
+def convert_date_format(date_text):
+    return datetime.strptime(date_text, "%d.%m.%Y %H:%M").strftime("%Y-%m-%d %H:%M:%S")
+
+@router.message(EventCreation.waiting_for_event_date)
+async def handle_event_date(message: types.Message, state: FSMContext):
+    date_text = message.text
+    if validate_date(date_text):
+        formatted_date = convert_date_format(date_text)
+        await state.update_data(event_date=formatted_date)
+        keyboard = home_button()
+        await message.answer("Введите место проведения мероприятия:", reply_markup=keyboard)
+        await state.set_state(EventCreation.waiting_for_event_location)
+    else:
+        await message.answer("Неправильный формат даты. Пожалуйста, введите дату в формате дд.мм.гггг чч:мм:")
+
+@router.message(EventCreation.waiting_for_event_location)
+async def handle_event_location(message: types.Message, state: FSMContext):
+    await state.update_data(event_location=message.text)
+    keyboard = home_button()
+    await message.answer("Введите ссылку на мероприятие:", reply_markup=keyboard)
+    await state.set_state(EventCreation.waiting_for_event_links)
+
+def validate_url(url):
+    url_regex = re.compile(r'^(https?://)?(www\.)?([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)+.*)$')
+    return re.match(url_regex, url) is not None
+
+
+# Команда /list
+@router.message(Command("list"))
+async def list_events_command(message: types.Message, state: FSMContext):
+    await show_events(message.from_user.id, message)
+
+@router.callback_query(lambda c: c.data == 'list_events')
+async def list_events_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    await show_events(callback_query.from_user.id, callback_query)
+
+# Команда /personal_list
+@router.message(Command("personal_list"))
+async def personal_list_command(message: types.Message, state: FSMContext):
+    await show_personal_events(message.from_user.id, message)
+
+@router.callback_query(lambda c: c.data == 'personal_list')
+async def personal_list_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    await show_personal_events(callback_query.from_user.id, callback_query)
+
+
+
+@router.callback_query(lambda c: c.data.startswith('edit_'))
+async def edit_event_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    event_id = int(callback_query.data.split('_')[1])
+    await state.update_data(event_id=event_id)
+    await start_event_edit(callback_query, state)
+
+async def start_event_edit(callback_query: types.CallbackQuery, state: FSMContext):
+    keyboard = home_button()
+    await delete_message_safe(callback_query.message.chat.id, callback_query.message.message_id)
+    await callback_query.message.answer("Введите новое название мероприятия:", reply_markup=keyboard)
+    await state.set_state(EventEdit.waiting_for_event_name)
+
+@router.message(EventEdit.waiting_for_event_name)
+async def handle_edit_event_name(message: types.Message, state: FSMContext):
+    await state.update_data(event_name=message.text)
+    keyboard = home_button()
+    await message.answer("Введите новое описание мероприятия:", reply_markup=keyboard)
+    await state.set_state(EventEdit.waiting_for_event_description)
+
+@router.message(EventEdit.waiting_for_event_description)
+async def handle_edit_event_description(message: types.Message, state: FSMContext):
+    await state.update_data(event_description=message.text)
+    keyboard = home_button()
+    await message.answer("Введите новую дату мероприятия (дд.мм.гггг чч:мм):", reply_markup=keyboard)
+    await state.set_state(EventEdit.waiting_for_event_date)
+
+@router.message(EventEdit.waiting_for_event_date)
+async def handle_edit_event_date(message: types.Message, state: FSMContext):
+    date_text = message.text
+    if validate_date(date_text):
+        formatted_date = convert_date_format(date_text)
+        await state.update_data(event_date=formatted_date)
+        keyboard = home_button()
+        await message.answer("Введите новое место проведения мероприятия:", reply_markup=keyboard)
+        await state.set_state(EventEdit.waiting_for_event_location)
+    else:
+        await message.answer("Неправильный формат даты. Пожалуйста, введите дату в формате дд.мм.гггг чч:мм:")
+
+@router.message(EventEdit.waiting_for_event_location)
+async def handle_edit_event_location(message: types.Message, state: FSMContext):
+    await state.update_data(event_location=message.text)
+    keyboard = home_button()
+    await message.answer("Введите новую ссылку на мероприятие:", reply_markup=keyboard)
+    await state.set_state(EventEdit.waiting_for_event_links)
+
+
+
+# Кнопка "Домой"
+@router.callback_query(lambda c: c.data == "home")
+async def home_callback(callback_query: types.CallbackQuery):
+    await delete_message_safe(callback_query.message.chat.id, callback_query.message.message_id)
+    await start_command(callback_query.message)
+
+# Обработчик для всех остальных сообщений
+@router.message()
+async def handle_text(message: types.Message):
+    response = "Вы не использовали команду. Чтобы просмотреть команды, Вы можете воспользоваться кнопкой меню."
+    await message.answer(response)
+
+# Основная функция
+async def main():
+    dp.include_router(router)
+    await on_startup()
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await on_shutdown()
+
+if __name__ == '__main__':
+    asyncio.run(main())
