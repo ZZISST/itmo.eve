@@ -1,20 +1,23 @@
 version: "4" #версия докера
 
 services: #контейнеры
+
   postgresDB:
     image: postgres:16.0
     container_name: itmo.eve_db
-    environment:
-      POSTGRES_DB: "itmo.eve_db"
-      POSTGRES_USER: "aleksandr"
-      POSTGRES_PASSWORD: "L1LaL2Lo"
+    env_file: 
+      - .env.db 
     volumes:
       - .:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
+    restart: always
+
+    
   bot: #сам контейнер (его имя)
     build: # создание контейнера???
       context: ./ #рабочая основная (не контейнерская) папка
       dockerfile: Dockerfile # докер файл с которого создавать контейнер
     command: > # команда которую нужно выполнить
       /bin/sh -c 'python src/main.py'
+    restart: always
